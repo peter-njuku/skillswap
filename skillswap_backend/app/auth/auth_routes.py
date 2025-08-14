@@ -1,18 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from datetime import timedelta
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.orm import session
 
-from ..database import get_db, engine
+from ..database import db_dependancy, engine
 from ...app import models
-from . import schemas
+from . import auth_schemas
 from .auth_utils import get_password_hash, authenticate_user, create_access_token, ACCESS_TOKEN_EXPIRY_MINUTES
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 models.Base.metadata.create_all(bind=engine)
 
-@router.post("/register",response_model=schemas.UserOut)
-async def register(user: schemas.UserCreate, db: session = Depends(get_db)):
+@router.post("/register",response_model=auth_schemas.UserOut)
+async def register(user: auth_schemas.UserCreate, db:db_dependancy ):
     db_user=db.query(models.User).filter(models.User.email==user.email).first()
     if db_user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already exists")
@@ -23,8 +22,8 @@ async def register(user: schemas.UserCreate, db: session = Depends(get_db)):
     db.refresh(new_user)
     return new_user
 
-@router.post("/login",response_model=schemas.Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm=Depends(), db:session=Depends(get_db)):
+@router.post("/login",response_model=auth_schemas.Token)
+async def login_for_access_token(db:db_dependancy,form_data: OAuth2PasswordRequestForm=Depends()):
     user=authenticate_user(db,email=form_data.username,password=form_data.password)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,

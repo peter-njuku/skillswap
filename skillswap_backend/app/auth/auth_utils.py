@@ -45,7 +45,7 @@ async def get_current_user(token: str=Depends(auth_scheme)):
     credential_exceptions=HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid Credentials",
-                header={"WWW-Authenticate":"Bearer"}
+                headers={"WWW-Authenticate":"Bearer"}
             )
     try:
         payload=jwt.decode(token,SECRET_KEY,algorithms=[ALGORITHM])

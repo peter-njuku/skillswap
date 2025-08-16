@@ -3,7 +3,7 @@ from datetime import timedelta
 from fastapi.security import OAuth2PasswordRequestForm
 
 from ..database import db_dependancy, engine
-from ...app import models
+from .. import models
 from . import auth_schemas
 from .auth_utils import get_password_hash, authenticate_user, create_access_token, ACCESS_TOKEN_EXPIRY_MINUTES
 

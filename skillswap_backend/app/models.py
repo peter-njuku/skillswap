@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, ForeignKey, Text, DateTime
+from sqlalchemy import Column, String, Integer, ForeignKey, Text, DateTime, Boolean, func
 from sqlalchemy.orm import relationship
 from .database import Base
 from datetime import datetime
@@ -15,8 +15,9 @@ class User(Base):
     skills_learn = Column(Text, nullable=True)
 
     skills = relationship("Skill", back_populates="owner")
-    chat_participants = relationship("ChatRoomParticipants", back_populates="user")
+    chat_participants = relationship("ChatRoomParticipant", back_populates="user")
     sent_messages = relationship("Message", back_populates="sender")
+    notifications = relationship("Notification",back_populates="user")
 
 class Skill(Base):
     __tablename__ = "skills"
@@ -36,7 +37,7 @@ class ChatRoom(Base):
     created_at = Column(DateTime,default=datetime.utcnow())
 
     messages = relationship("Message", back_populates="room", cascade="all, delete")
-    participants = relationship("ChatParticipant", back_populates="room", cascade="all, delete")
+    participants = relationship("ChatRoomParticipant", back_populates="room", cascade="all, delete")
 
 class ChatRoomParticipant(Base):
     __tablename__ = "chat_participants"
@@ -46,7 +47,7 @@ class ChatRoomParticipant(Base):
     room_id = Column(Integer, ForeignKey("chat_rooms.id"))
 
     room=relationship("ChatRoom", back_populates="participants")
-    user=relationship("User", back_populates="chat_participation")
+    user=relationship("User", back_populates="chat_participants")
 
 class Message(Base):
     __tablename__= "messages"
@@ -59,3 +60,15 @@ class Message(Base):
 
     room=relationship("ChatRoom", back_populates="messages")
     sender=relationship("User", back_populates="sent_messages")
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id=Column(Integer, ForeignKey("users.id"))
+    type=Column(String)
+    content=Column(String)
+    is_read=Column(Boolean, default=False)
+    created_at=Column(DateTime, server_default=func.now())
+    
+    user=relationship("User", back_populates="notifications")

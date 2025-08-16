@@ -1,7 +1,7 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, Dict
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from ..auth.auth_utils import get_current_user
 import json
-import aioredis
+import redis.asyncio as redis
 from sqlalchemy.orm import Session
 from .. import models
 from . import chat_schemas
@@ -13,12 +13,14 @@ router = APIRouter(prefix="/chat", tags=["Chat"])
 REDIS_URL = "redis://localhost"
 CHANNEL_NAME = "chat_channel"
 
+
 @router.websocket("/ws/{room_id}")
-async def websocket_endpoint(websocket:WebSocket, room_id:int, current_user:dict=Depends(get_current_user)):
+async def websocket_endpoint(websocket: WebSocket, room_id: int, current_user: dict = Depends(get_current_user)):
     await websocket.accept()
 
-    redis = await aioredis.from_url(REDIS_URL)
-    pubsub= redis.pubsub()
+    # ✅ avoid shadowing the redis module
+    redis_client = redis.from_url(REDIS_URL)
+    pubsub = redis_client.pubsub()
     await pubsub.subscribe(f"{CHANNEL_NAME}:{room_id}")
 
     try:
@@ -29,14 +31,16 @@ async def websocket_endpoint(websocket:WebSocket, room_id:int, current_user:dict
                 'user': current_user['email'],
                 'message': data
             }
-            await redis.publish(f"{CHANNEL_NAME}:{room_id}", json.dump(message_data))
 
-            msg=await pubsub.get_message(ignore_subscribe_messages=True)
+            # ✅ json.dumps instead of dump
+            await redis_client.publish(f"{CHANNEL_NAME}:{room_id}", json.dumps(message_data))
+
+            msg = await pubsub.get_message(ignore_subscribe_messages=True)
             if msg:
                 await websocket.send_text(msg['data'].decode('utf-8'))
     except:
         await pubsub.unsubscribe(f"{CHANNEL_NAME}:{room_id}")
-        await redis.close()
+        await redis_client.close()
 
 def get_user_obj(db:Session, current_user:dict) -> models.User:
     user = db.query(models.User).filter(models.User.email == current_user['email']).first()
@@ -104,23 +108,48 @@ def get_room_messages(db:db_dependancy, room_id:int, current_user:dict=Depends(g
     return msgs
 
 @router.post("/rooms/{room_id}/messages", response_model=chat_schemas.MessageOut)
-def send_message(room_id:int, payload:chat_schemas.MessageCreate, db:db_dependancy, current_user:dict=Depends(get_current_user)):
-    me=get_user_obj(db, current_user)
+def send_message(
+    room_id: int,
+    payload: chat_schemas.MessageCreate,
+    db: db_dependancy,
+    current_user: dict = Depends(get_current_user)
+):
+    me = get_user_obj(db, current_user)
+
+    # ✅ ensure user is part of this room
     member = db.query(models.ChatRoomParticipant).filter_by(room_id=room_id, user_id=me.id).first()
     if not member:
         raise HTTPException(status_code=403, detail="Not a participant in this room")
 
+    # ✅ create the message
     msg = models.Message(sender_id=me.id, room_id=room_id, content=payload.content)
     db.add(msg)
     db.commit()
     db.refresh(msg)
 
-    awaitable = ConnectionManager.broadcast({
-        'type':'message',
-        'room_id':room_id,
-        'sender_id':me.id,
-        'content':payload.content,
-        'message_id':msg.id,
+    # ✅ add notifications for all participants except sender
+    participants = db.query(models.ChatRoomParticipant).filter(
+        models.ChatRoomParticipant.room_id == room_id
+    ).all()
+
+    for p in participants:
+        if p.user_id != me.id:
+            notif = models.Notification(
+                user_id=p.user_id,
+                type="message",
+                content=f"New message in room {room_id} from {me.email}"
+            )
+            db.add(notif)
+
+    db.commit()
+
+    # ✅ broadcast the new message to connected WebSockets
+    awaitable = ConnectionManager.broadcast(room_id, {
+        'type': 'message',
+        'room_id': room_id,
+        'sender_id': me.id,
+        'content': payload.content,
+        'message_id': msg.id,
         'timestamp': msg.timestamp.isoformat()
     })
 
@@ -133,6 +162,7 @@ def send_message(room_id:int, payload:chat_schemas.MessageCreate, db:db_dependan
 
     return msg
 
+
 class ConnectionManager:
     rooms:Dict[int, Set[WebSocket]] = {}
 
@@ -143,10 +173,11 @@ class ConnectionManager:
     
     @classmethod
     def disconnect(cls, room_id:int, websocket:WebSocket):
-        for room_id in cls.rooms and websocket in cls.rooms[room_id]:
+        if room_id in cls.rooms and websocket in cls.rooms[room_id]:
             cls.rooms[room_id].remove(websocket)
             if not cls.rooms[room_id]:
                 del cls.rooms[room_id]
+
     
     @classmethod
     async def broadcast(cls, room_id:int, payload:dict):

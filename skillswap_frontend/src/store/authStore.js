@@ -17,9 +17,13 @@ export const useAuthStore = create(
                         params,
                         {headers:{"Content-Type":"application/x-www-form-urlencoded"}}
                     );
+                    const token = res.data.access_token;
+                    const profile = await axios.get('http://localhost:8000/users/me', 
+                        {headers:{"Authorization": `Bearer ${token}`}}
+                    );
                     set({
-                        user: {email},
-                        token: res.data.access_token,
+                        user: profile.data,
+                        token: token,
                     });
                     return res.data
                 }catch(err){
@@ -28,6 +32,18 @@ export const useAuthStore = create(
                 }
             },
             logout: () => set({user: null, token:null}),
+            fetchUserSkills: async () =>{
+                const token = get().token;
+                if(!token) return;
+                try{
+                    const response = await axios.get('http://localhost:8000/users/me', {
+                        headers:{"Authorization": `Bearer ${token}`}
+                    });
+                    set({user:response.data})
+                }catch(err){
+                    console.error("Fetching skills failed: ", err.response?.data || err.message)
+                }
+            }
         }),
         {name:'auth-storage'}
     )

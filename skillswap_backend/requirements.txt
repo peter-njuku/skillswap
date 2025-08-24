@@ -10,4 +10,4 @@ pydantic[email]
 python-jose[cryptography]
 passlib
 python-multipart
-bcrypt
+bcrypt==3.2.2

@@ -24,6 +24,7 @@ class UserProfileUpdate(UserProfileBase):
 class UserProfileOut(BaseModel):
     id:int
     email:str
+    full_name:str
     skills:List[SkillOut]
 
     class Config:
